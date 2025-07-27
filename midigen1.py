@@ -3,7 +3,6 @@ import random
 import os
 
 # --- SETTINGS ---
-BPM = 82
 CHORD_DURATION = 1.0
 SWING = 0.04
 OUTPUT_DIR = 'midi_exports'
@@ -38,16 +37,11 @@ CHORDS = {
 
 def get_chord_notes(root_note, intervals):
     chord = [root_note + i for i in intervals]
-
-    # Inversion
     if len(chord) >= 3 and random.random() < 0.6:
         inversion = random.randint(0, len(chord)-2)
         chord = chord[inversion:] + [n + 12 for n in chord[:inversion]]
-
-    # Bass doubling
     if random.random() < 0.3:
         chord = [chord[0] - 12] + chord
-
     return chord
 
 def staggered_chord(chord, start_time, duration, roll_strength=0.04):
@@ -60,46 +54,77 @@ def staggered_chord(chord, start_time, duration, roll_strength=0.04):
         ) for i, pitch in enumerate(chord)
     ]
 
+def generate_melody(chords, start_time, note_length=0.5, swing_amount=0.02):
+    notes = []
+    t = start_time
+    for chord in chords:
+        melody_note = random.choice(chord[1:]) + 12  # higher octave
+        velocity = random.randint(75, 100)
+        delay = random.uniform(-swing_amount, swing_amount)
+        note = pretty_midi.Note(
+            velocity=velocity,
+            pitch=melody_note,
+            start=t + delay,
+            end=t + delay + note_length
+        )
+        notes.append(note)
+        t += CHORD_DURATION
+    return notes
+
 def build_progression(prog, key_note):
     return [get_chord_notes(key_note, CHORDS[d]) for d in prog]
 
-def create_midi(chords, bpm, key, progression_str, index):
+def create_midi(chords, bpm, key, progression_str, index, add_melody=False):
     midi = pretty_midi.PrettyMIDI(initial_tempo=bpm)
+
+    # Chords (piano)
     piano = pretty_midi.Instrument(program=pretty_midi.instrument_name_to_program('Electric Piano 1'))
-    
-    time = 0
+    t = 0
     for i, chord in enumerate(chords):
         delay = SWING if i % 2 == 1 else 0
-        notes = staggered_chord(chord, time + delay, CHORD_DURATION)
-        piano.notes.extend(notes)
-        time += CHORD_DURATION
-
+        rolled = staggered_chord(chord, t + delay, CHORD_DURATION)
+        piano.notes.extend(rolled)
+        t += CHORD_DURATION
     midi.instruments.append(piano)
 
+    # Melody (optional)
+    if add_melody:
+        lead = pretty_midi.Instrument(program=pretty_midi.instrument_name_to_program('Synth Lead 1'))
+        lead.notes = generate_melody(chords, start_time=0.1)
+        midi.instruments.append(lead)
+
+    # Save file
     prog_id = '-'.join(progression_str)
     filename = f"{key}_{index}_{prog_id}.mid".replace('/', '')
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     filepath = os.path.join(OUTPUT_DIR, filename)
     midi.write(filepath)
-    print(f"🎹 Exported: {filepath}")
+    print(f"🎼 Exported: {filepath}")
 
 def main():
     print("🎧 Available keys:", ', '.join(KEYS.keys()))
     key_input = input("Select a key (e.g. C, D#, F#): ").strip()
     while key_input not in KEYS:
-        key_input = input("Invalid key. Try again (e.g. C, G#): ").strip()
-
+        key_input = input("Invalid key. Try again: ").strip()
     key_note = KEYS[key_input]
 
     try:
-        count = int(input("How many progressions would you like to generate? "))
+        count = int(input("How many progressions to generate? "))
     except ValueError:
         count = 1
+
+    try:
+        bpm = int(input("Set BPM (default 85): ") or "85")
+    except ValueError:
+        bpm = 85
+
+    melody_input = input("Add melody on top? (Y/N): ").strip().upper()
+    add_melody = melody_input == "Y"
 
     for i in range(count):
         progression = random.choice(progressions)
         chords = build_progression(progression, key_note)
-        create_midi(chords, BPM, key_input, progression, i)
+        create_midi(chords, bpm, key_input, progression, i, add_melody)
 
 if __name__ == "__main__":
     main()
